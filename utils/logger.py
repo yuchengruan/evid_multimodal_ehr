@@ -1,5 +1,6 @@
 import os
 from comet_ml import Experiment
+
 import torch.distributed as dist
 
 class CometNewExperiment(Experiment):
@@ -12,9 +13,9 @@ class CometNewExperiment(Experiment):
 
 def create_logger(hparams):
 
-    login_info = {"api_key": "xxxxx", 
-                  "project_name": "xxxxx", 
-                  "workspace": "xxxxx"}
+    login_info = {"api_key": "xxx", 
+                  "project_name": "xxx", 
+                  "workspace": "xxx"}
 
     if (dist.is_torchelastic_launched() is True and int(os.environ['LOCAL_RANK']) == 0) or (dist.is_torchelastic_launched() is not True):
         login_info["disabled"] = not hparams.logger

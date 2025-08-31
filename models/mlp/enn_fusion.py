@@ -6,7 +6,8 @@ from rtdl_revisiting_models import MLP, ResNet, FTTransformer
 from models.dst_pytorch import Belief_layer, Dempster_Shafer_Module, Dempster_layer, DempsterNormalize_layer, Distance_layer, DistanceActivation_layer, Omega_layer
 ModuleType = Union[str, Callable[..., nn.Module]]
 ModuleType0 = Union[str, Callable[[], nn.Module]]
-
+from transformers import AutoTokenizer, AutoModel
+from peft import inject_adapter_in_model, LoraConfig
 
 def pignistic(mass, n_class):
 
@@ -14,6 +15,25 @@ def pignistic(mass, n_class):
     uncertainty = mass[:, n_class]
 
     return probs, uncertainty
+    
+
+class MassGen(nn.Module):
+    def __init__(self, n_feature_maps, n_classes, n_prototypes = 1) -> None:
+        super().__init__()
+
+        self.ds1 = Distance_layer(n_prototypes, n_feature_maps)
+        self.ds1_activate = DistanceActivation_layer(n_prototypes)
+        self.ds2 = Belief_layer(n_prototypes, n_classes)
+        self.ds2_omega = Omega_layer(n_prototypes, n_classes)
+
+    def forward(self, inputs):
+        ED = self.ds1(inputs)
+        ED_ac = self.ds1_activate(ED)
+        mass_prototypes = self.ds2(ED_ac)
+        mass_prototypes_omega = self.ds2_omega(mass_prototypes)
+        return mass_prototypes_omega
+
+
 
 class MLPENNOneStructured(nn.Module):
     # combine twice
@@ -24,7 +44,6 @@ class MLPENNOneStructured(nn.Module):
 
         # structured
         structured_d_in_ls = hparams.structured_d_in_ls
-        # REPLACE THE BACKBONE MODEL to MLP, ResNet and FT-Transformer
         self.backbone = MLP(
                         d_in=sum(structured_d_in_ls),
                         n_blocks=hparams.n_blocks,
@@ -83,4 +102,3 @@ class MLPENNOneStructured(nn.Module):
 
         return probs, structured_logits, notes_logits, uncertainty
     
-

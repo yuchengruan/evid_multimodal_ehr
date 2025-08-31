@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 
 class Distance_layer(torch.nn.Module):
     '''
@@ -6,7 +7,7 @@ class Distance_layer(torch.nn.Module):
     '''
     def __init__(self, n_prototypes, n_feature_maps):
         super(Distance_layer, self).__init__()
-        
+        # self.w = torch.nn.Linear(in_features=n_feature_maps, out_features=n_prototypes, bias=False).weight
         self.w = torch.nn.Parameter(torch.Tensor(n_prototypes, n_feature_maps))
         torch.nn.init.normal_(self.w)
         self.n_prototypes = n_prototypes
@@ -31,12 +32,13 @@ class DistanceActivation_layer(torch.nn.Module):
     '''
     def __init__(self, n_prototypes,init_alpha=0,init_gamma=0.1):
         super(DistanceActivation_layer, self).__init__()
-        self.eta = torch.nn.Linear(in_features=n_prototypes, out_features=1, bias=False)
-        self.xi = torch.nn.Linear(in_features=n_prototypes, out_features=1, bias=False)
- 
+        self.eta = torch.nn.Linear(in_features=n_prototypes, out_features=1, bias=False)#.weight.data.fill_(torch.from_numpy(np.array(init_gamma)).to(device))
+        self.xi = torch.nn.Linear(in_features=n_prototypes, out_features=1, bias=False)#.weight.data.fill_(torch.from_numpy(np.array(init_alpha)).to(device))
+        #torch.nn.init.kaiming_uniform_(self.eta.weight)
+        #torch.nn.init.kaiming_uniform_(self.xi.weight)
         torch.nn.init.constant_(self.eta.weight,init_gamma)
         torch.nn.init.constant_(self.xi.weight,init_alpha)
-
+        #self.alpha_test = 1/(torch.exp(-self.xi.weight)+1)
         self.n_prototypes = n_prototypes
 
 
@@ -52,15 +54,36 @@ class DistanceActivation_layer(torch.nn.Module):
         si = torch.mul(si, alpha)
         max_val, max_idx = torch.max(si, dim=-1, keepdim=True)
         si /= (max_val + 0.0001)
-
+        # si /= (max_val + 0.0001)
 
         return si
 
 
+# class Belief_layer(torch.nn.Module):
+#     def __init__(self, n_prototypes, num_class):
+#         super(Belief_layer, self).__init__()
+#         self.beta = torch.nn.Linear(in_features=n_prototypes, out_features=num_class, bias=False).weight
+#         self.prototypes = n_prototypes
+#         self.num_class = num_class
+
+#     def forward(self, inputs):
+#         beta = torch.square(self.beta)
+#         beta_sum = torch.sum(beta, dim=0, keepdim=True)
+#         self.u = torch.div(beta, beta_sum)
+#         inputs_new = torch.unsqueeze(inputs, dim=-2)
+#         for i in range(self.prototypes):
+#             if i == 0:
+#                 mass_prototype_i = torch.mul(self.u[:, i], inputs_new[..., i])  #batch_size * n_class
+#                 mass_prototype = torch.unsqueeze(mass_prototype_i, -2)
+#             if i > 0:
+#                 mass_prototype_i = torch.unsqueeze(torch.mul(self.u[:, i], inputs_new[..., i]), -2)
+#                 mass_prototype = torch.cat([mass_prototype, mass_prototype_i], -2)
+#         return mass_prototype
+
 class Belief_layer(torch.nn.Module):
     def __init__(self, n_prototypes, num_class):
         super(Belief_layer, self).__init__()
-
+        # self.beta = torch.nn.Linear(in_features=num_class, out_features=n_prototypes, bias=False).weight
         self.beta = torch.nn.Parameter(torch.Tensor(n_prototypes, num_class))
         torch.nn.init.normal_(self.beta)
 
@@ -74,7 +97,7 @@ class Belief_layer(torch.nn.Module):
         inputs_new = torch.unsqueeze(inputs, dim=-1)
         for i in range(self.prototypes):
             if i == 0:
-                mass_prototype_i = torch.mul(u[i, :], inputs_new[:, i]) 
+                mass_prototype_i = torch.mul(u[i, :], inputs_new[:, i])  #batch_size * n_class
                 mass_prototype = torch.unsqueeze(mass_prototype_i, -2)
             if i > 0:
                 mass_prototype_i = torch.unsqueeze(torch.mul(u[i, :], inputs_new[:, i]), -2)
@@ -82,9 +105,26 @@ class Belief_layer(torch.nn.Module):
         return mass_prototype
     
 
+# class Belief_layer(torch.nn.Module):
+#     '''
+#     verified
+#     '''
+#     def __init__(self, n_prototypes, num_class):
+#         super(Belief_layer, self).__init__()
+#         self.beta = torch.nn.Linear(in_features=n_prototypes, out_features=num_class, bias=False).weight
+#         torch.nn.init.normal_(self.beta)
+#         self.num_class = num_class
+
+#     def forward(self, inputs):
+#         beta = torch.square(self.beta)
+#         beta_sum = torch.sum(beta, dim=0, keepdim=True)
+#         u = torch.div(beta, beta_sum)
+#         mass_prototype = torch.einsum('cp,b...p->b...pc',u, inputs)
+#         return mass_prototype
+
 class Omega_layer(torch.nn.Module):
     '''
-    verified
+    verified, give same results
 
     '''
     def __init__(self, n_prototypes, num_class):
@@ -94,13 +134,14 @@ class Omega_layer(torch.nn.Module):
 
     def forward(self, inputs):
         mass_omega_sum = 1 - torch.sum(inputs, -1, keepdim=True)
-
+        # mass_omega_sum = 1. - mass_omega_sum[..., 0]
+        # mass_omega_sum = torch.unsqueeze(mass_omega_sum, -1)
         mass_with_omega = torch.cat([inputs, mass_omega_sum], -1)
         return mass_with_omega
 
 class Dempster_layer(torch.nn.Module):
     '''
-    verified
+    verified give same results
 
     '''
     def __init__(self, n_prototypes, num_class):
@@ -161,3 +202,29 @@ class Dempster_Shafer_Module(torch.nn.Module):
 
         mass_Dempster_normalize = self.ds3_normalize(mass_Dempster)        
         return mass_Dempster_normalize
+
+
+
+
+def tile(a, dim, n_tile, device):
+    init_dim = a.size(dim)
+    repeat_idx = [1] * a.dim()
+    repeat_idx[dim] = n_tile
+    a = a.repeat(*(repeat_idx))
+    order_index = torch.LongTensor(np.concatenate([init_dim * np.arange(n_tile) + i for i in range(init_dim)])).to(
+        device)
+    return torch.index_select(a, dim, order_index)
+
+
+class DM(torch.nn.Module):
+    def __init__(self, num_class, nu=0.9, device=torch.device('cpu')):
+        super(DM, self).__init__()
+        self.nu = nu
+        self.num_class = num_class
+        self.device = device
+
+    def forward(self, inputs):
+        upper = torch.unsqueeze((1 - self.nu) * inputs[..., -1], -1)  # here 0.1 = 1 - \nu
+        upper = tile(upper, dim=-1, n_tile=self.num_class + 1, device=self.device)
+        outputs = (inputs + upper)[..., :-1]
+        return outputs
